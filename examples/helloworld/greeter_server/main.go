@@ -34,8 +34,14 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"net"
+	"os"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -52,6 +58,57 @@ type server struct{}
 // SayHello implements helloworld.GreeterServer
 func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
 	return &pb.HelloReply{Message: "Hello " + in.Name}, nil
+}
+
+func (s *server) HighFive(stream pb.Greeter_HighFiveServer) error {
+	var count int
+
+	// Receive loop
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		in := ioutil.NopCloser(bytes.NewReader(req.Content))
+		r, w, _ := os.Pipe()
+
+		myService(in, w)
+
+		w.Close()
+
+		var data bytes.Buffer
+		io.Copy(&data, r)
+
+		reply := &pb.HighReply{Count: int32(count), Content: data.Bytes()}
+
+		r.Close()
+
+		if err := stream.Send(reply); err != nil {
+			return err
+		}
+		count++
+	}
+
+	return nil
+}
+
+// The real service
+func myService(stdin io.ReadCloser, stdout io.WriteCloser) error {
+	reader := bufio.NewReader(stdin)
+	// for {
+
+	line, _, err := reader.ReadLine()
+	if err != nil {
+		return err
+	}
+	stdout.Write(line)
+	// }
+
+	return nil
 }
 
 func main() {

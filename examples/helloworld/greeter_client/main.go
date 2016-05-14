@@ -34,6 +34,9 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -66,4 +69,26 @@ func main() {
 		log.Fatalf("could not greet: %v", err)
 	}
 	log.Printf("Greeting: %s", r.Message)
+
+	stream, err := c.HighFive(context.Background())
+
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		fmt.Printf("Read from input:\\>")
+		msg, _ := reader.ReadString('\n')
+
+		if err := stream.Send(&pb.HighRequest{Name: "This is a message", Content: []byte(msg)}); err != nil {
+			log.Fatalf("Failed to send a note: %v", err)
+		}
+
+		hi, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatalf("%v.HighFive(_) = _, %v", c, err)
+		}
+		log.Printf("Got: %v\n", hi)
+	}
 }
