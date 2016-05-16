@@ -35,10 +35,8 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -61,54 +59,89 @@ func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloRe
 }
 
 func (s *server) HighFive(stream pb.Greeter_HighFiveServer) error {
-	var count int
+	fmt.Println("HighFive server begin ...")
+	r, w, _ := os.Pipe()
+	read, write, _ := os.Pipe()
 
-	// Receive loop
+	go func() {
+		// Recv loop
+		for {
+			req, err := stream.Recv()
+			fmt.Printf("stream received: %s\n", req.Content)
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				panic(err)
+			}
+			w.Write(req.Content)
+			fmt.Println("content wrote")
+			defer w.Close()
+		}
+	}()
+
+	go func() {
+		myService(r, write)
+	}()
+
+	// Send loop
 	for {
-		req, err := stream.Recv()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-
-		in := ioutil.NopCloser(bytes.NewReader(req.Content))
-		r, w, _ := os.Pipe()
-
-		myService(in, w)
-
-		w.Close()
-
-		var data bytes.Buffer
-		io.Copy(&data, r)
-
-		reply := &pb.HighReply{Count: int32(count), Content: data.Bytes()}
-
-		r.Close()
-
+		reader := bufio.NewReader(read)
+		data, _, _ := reader.ReadLine()
+		fmt.Println("content read")
+		reply := &pb.HighReply{Content: data}
 		if err := stream.Send(reply); err != nil {
-			return err
+			panic(err)
 		}
-		count++
+		fmt.Println("content sent")
 	}
 
 	return nil
 }
 
-// The real service
+// The real service, it's a echo loop
 func myService(stdin io.ReadCloser, stdout io.WriteCloser) error {
-	reader := bufio.NewReader(stdin)
-	// for {
-
-	line, _, err := reader.ReadLine()
-	if err != nil {
-		return err
+	for {
+		reader := bufio.NewReader(stdin)
+		line, _, err := reader.ReadLine()
+		fmt.Printf("line readed: %s\n", line)
+		if err != nil {
+			return err
+		}
+		if string(line[:]) == "exit" {
+			return nil
+		} else {
+			// Need to add a "\n" at the end of string, otherwise it will deadlock!
+			strMsg := fmt.Sprintf("Processed: %s\n", line)
+			stdout.Write([]byte(strMsg))
+			fmt.Println("line wrote")
+		}
 	}
-	stdout.Write(line)
-	// }
-
+	/**
+	buf := make([]byte, 32*1024)
+	for {
+		nr, er := stdin.Read(buf)
+		if nr > 0 {
+			strMsg := fmt.Sprintf("Processed: %s\n", buf[0:nr])
+			_, ew := stdout.Write([]byte(strMsg))
+			if ew != nil {
+				return ew
+			}
+		}
+		if er == io.EOF {
+			return er
+		}
+		if er != nil {
+			return er
+		}
+	}
+	**/
 	return nil
+}
+
+func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err error) {
+
+	return written, err
 }
 
 func main() {
